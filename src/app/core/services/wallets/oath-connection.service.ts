@@ -26,6 +26,7 @@ export class OathConnectionAttempt {
 @Injectable({ providedIn: 'root' })
 export class OathConnectionService {
   private readonly viewSubject$ = new BehaviorSubject<OathConnectionView | null>(null);
+  private currentRender: object | undefined;
   public readonly view$ = this.viewSubject$.asObservable();
   public attempt: OathConnectionAttempt | null = null;
 
@@ -37,15 +38,23 @@ export class OathConnectionService {
   }
 
   public async showUri(attempt: OathConnectionAttempt, uri: string): Promise<void> {
-    const appLink = oathConnectionLink(uri);
-    const qrImage = await QRCode.toDataURL(uri, {
-      width: 280,
-      margin: 4,
-      errorCorrectionLevel: 'M'
-    });
-    // An old QR render must never replace a retry's pairing.
-    if (this.attempt === attempt && !attempt.signal.aborted) {
-      this.viewSubject$.next({ qrImage, appLink });
+    if (this.attempt !== attempt || attempt.signal.aborted) return;
+    const render = {};
+    this.currentRender = render;
+    const isCurrent = () =>
+      this.currentRender === render && this.attempt === attempt && !attempt.signal.aborted;
+    this.viewSubject$.next({});
+    try {
+      const appLink = oathConnectionLink(uri);
+      const qrImage = await QRCode.toDataURL(uri, {
+        width: 280,
+        margin: 4,
+        errorCorrectionLevel: 'M'
+      });
+      // A newer URI can supersede a render within the same connection attempt.
+      if (isCurrent()) this.viewSubject$.next({ qrImage, appLink });
+    } catch (error) {
+      if (isCurrent()) throw error;
     }
   }
 
